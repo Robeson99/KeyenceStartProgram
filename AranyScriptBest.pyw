@@ -261,6 +261,15 @@ class SequentialHandler(threading.Thread):
             logging.error(f"Error saving image: {e}")
 
     def cleanup(self):
+        # Send "SP\r" to DAQ Device to stop logging
+        if self.daq_socket:
+            if self.send_command(self.daq_socket, "SP\r", "DAQ"):
+                response_sp = self.receive_response(self.daq_socket, "DAQ")
+                if response_sp:
+                    logging.info(f"Received from DAQ: '{response_sp}' after 'SP' command.")
+                else:
+                    logging.warning("No response received for 'SP' command.")
+
         # Close IV Sensor socket
         if self.iv_socket:
             try:
