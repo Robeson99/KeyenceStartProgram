@@ -5,7 +5,6 @@ import socket
 import time
 from openpyxl import Workbook
 import os
-import queue
 from datetime import datetime
 import logging
 
@@ -88,23 +87,11 @@ class SequentialHandler(threading.Thread):
                     logging.error("Failed to receive response for 'T2' command.")
                     continue  # Skip to next cycle
 
-                # 3. Send "BR,0\r" to IV Sensor to get image data
-                if not self.send_command(self.iv_socket, "BR,0\r", "IVSensor"):
-                    continue
-
-                # 4. Receive and save image data
-                image_data = self.receive_br_response()
-                if image_data:
-                    self.save_image(image_data)
-                else:
-                    logging.error("Failed to receive image data.")
-                    continue  # Skip to next cycle
-
-                # 5. Send "RM\r" to DAQ Device
+                # 3. Send "RM\r" to DAQ Device
                 if not self.send_command(self.daq_socket, "RM\r", "DAQ"):
                     continue
 
-                # 6. Receive response for "RM\r"
+                # 4. Receive response for "RM\r"
                 response_rm = self.receive_response(self.daq_socket, "DAQ")
                 if response_rm:
                     self.parse_daq_response(response_rm)
@@ -148,54 +135,6 @@ class SequentialHandler(threading.Thread):
             return None
         except Exception as e:
             logging.error(f"Error receiving response from {device_name}: {e}")
-            return None
-
-    def receive_br_response(self):
-        try:
-            # Read header until third comma to get data length
-            header = b''
-            commas = 0
-            while commas < 3:
-                byte = self.iv_socket.recv(1)
-                if not byte:
-                    break
-                header += byte
-                if byte == b',':
-                    commas += 1
-
-            header_str = header.decode('ascii', errors='replace').strip(',')
-            parts = header_str.split(',')
-            if len(parts) < 3:
-                logging.error("Invalid BR response header.")
-                return None
-
-            try:
-                data_length = int(parts[2])
-                logging.info(f"Expecting {data_length} bytes of image data.")
-            except ValueError:
-                logging.error("Invalid data length in BR response.")
-                return None
-
-            # Receive image data
-            image_data = b''
-            while len(image_data) < data_length:
-                chunk = self.iv_socket.recv(min(4096, data_length - len(image_data)))
-                if not chunk:
-                    break
-                image_data += chunk
-
-            if len(image_data) != data_length:
-                logging.error(f"Incomplete image data received: {len(image_data)}/{data_length} bytes.")
-                return None
-
-            logging.info(f"Received image data: {len(image_data)} bytes.")
-            return image_data
-
-        except socket.timeout:
-            logging.error("Timeout while receiving BR response.")
-            return None
-        except Exception as e:
-            logging.error(f"Error receiving BR response: {e}")
             return None
 
     def parse_iv_response(self, response):
@@ -245,20 +184,6 @@ class SequentialHandler(threading.Thread):
         except Exception as e:
             logging.error(f"Error converting HSV to RGB: {e}")
             return 0, 0, 0
-
-    def save_image(self, image_data):
-        try:
-            os.makedirs(BASE_DIRECTORY, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"image_{timestamp}.bmp"
-            filepath = os.path.join(BASE_DIRECTORY, filename)
-
-            with open(filepath, 'wb') as f:
-                f.write(image_data)
-
-            logging.info(f"Saved image: {filepath}")
-        except Exception as e:
-            logging.error(f"Error saving image: {e}")
 
     def cleanup(self):
         # Send "SP\r" to DAQ Device to stop logging
